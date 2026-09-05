@@ -81,7 +81,7 @@ export function useYouTubePlayer(options: { onEnded: () => void; onUnavailable?:
     setActiveSource("Invidious");
     audio.src = source.url;
     audio.currentTime = startSeconds;
-    if (autoplay) void audio.play().catch(() => useSource(sourceIndex + 1, startSeconds, true));
+    if (autoplay) void audio.play().catch(() => unavailableRef.current?.());
   }, []);
 
   const tryNextSource = useCallback(() => {

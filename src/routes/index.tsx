@@ -543,18 +543,18 @@ function MusicApp() {
           <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation">
             <Menu className="h-5 w-5" />
           </Button>
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-vinyl shadow-player">
-            <Disc3
-              className={cn("h-6 w-6 text-primary", player.isPlaying && "animate-spin-slow")}
-            />
-          </span>
-          <div className="flex-1">
-            <h1 className="truncate text-xl font-bold sm:text-3xl">MelodyMap</h1>
-            <p className="text-xs text-muted-foreground">
-              {auth.userId
-                ? "Your feed syncs to your account"
-                : "Free listening with recommendations that learn your taste"}
-            </p>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-vinyl shadow-player">
+              <Disc3
+                className={cn("h-6 w-6 text-primary", player.isPlaying && "animate-spin-slow")}
+              />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-xl font-bold sm:text-3xl">MelodyMap</h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {auth.userId ? "Your music. Your mood." : "Your music. Your mood."}
+              </p>
+            </div>
           </div>
           <AccountMenu
             userId={auth.userId}
@@ -818,7 +818,7 @@ function MusicApp() {
 
       <MobilePlayer
         open={mobilePlayerOpen}
-        track={current}
+        {...(current ? { track: current } : {})}
         isPlaying={player.isPlaying}
         position={player.position}
         duration={player.duration}
