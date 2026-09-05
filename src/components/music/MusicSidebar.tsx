@@ -30,6 +30,7 @@ type Props = {
   onLanguageSelect: (language: string) => void;
   artists: string[];
   userId?: string | null;
+  embedded?: boolean;
 };
 
 const discoverItems: Array<{ id: BrowseTab; label: string; icon: typeof Sparkles }> = [
@@ -76,9 +77,16 @@ function NavItem({
   );
 }
 
-export function MusicSidebar({ tab, onTabChange, onLanguageSelect, artists, userId }: Props) {
+export function MusicSidebar({ tab, onTabChange, onLanguageSelect, artists, userId, embedded = false }: Props) {
   return (
-    <aside className="fixed inset-y-0 left-0 z-40 hidden w-72 border-r border-border/70 bg-background/95 px-4 py-6 backdrop-blur md:flex md:flex-col">
+    <aside
+      className={cn(
+        "w-72 bg-background px-4 py-6",
+        embedded
+          ? "flex h-full flex-col"
+          : "fixed inset-y-0 left-0 z-40 hidden border-r border-border/70 bg-background/95 backdrop-blur md:flex md:flex-col",
+      )}
+    >
       <div className="flex items-center gap-3 px-2">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-vinyl shadow-player">
           <Disc3 className="h-6 w-6 text-primary" />
