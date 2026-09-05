@@ -85,11 +85,12 @@ export function useYouTubePlayer(options: { onEnded: () => void; onUnavailable?:
   }, []);
 
   const tryNextSource = useCallback(() => {
-    const resumeAt = activeSource === "IFrame"
-      ? playerRef.current?.getCurrentTime() || 0
-      : audioRef.current?.currentTime || 0;
+    const currentSource = sourcesRef.current[sourceIndexRef.current];
+    const resumeAt = currentSource?.type === "audio"
+      ? audioRef.current?.currentTime || 0
+      : playerRef.current?.getCurrentTime() || 0;
     useSource(sourceIndexRef.current + 1, resumeAt, true);
-  }, [activeSource, useSource]);
+  }, [useSource]);
 
   useEffect(() => {
     let cancelled = false;
