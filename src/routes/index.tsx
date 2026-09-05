@@ -14,6 +14,7 @@ import {
   SkipForward,
   ListMusic,
   ListVideo,
+  Menu,
   Settings2,
   Sparkles,
   ThumbsDown,
@@ -21,6 +22,9 @@ import {
 } from "lucide-react";
 
 import { AccountMenu } from "@/components/music/AccountMenu";
+import { BottomNav } from "@/components/music/BottomNav";
+import { MobilePlayer } from "@/components/music/MobilePlayer";
+import { MusicSidebar, type BrowseTab } from "@/components/music/MusicSidebar";
 import { Equalizer, SpinningArt } from "@/components/music/NowPlayingViz";
 
 import { MixesPanel, type MixId } from "@/components/music/MixesPanel";
@@ -32,6 +36,7 @@ import { TrackList } from "@/components/music/TrackList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import {
   useLibrary,
   trackLabel,
@@ -43,6 +48,7 @@ import {
   skippedLabels,
   sequenceBrief,
   MOODS,
+  LANGUAGES,
   type Track,
 } from "@/lib/library";
 import { useAuth } from "@/lib/auth";
@@ -54,6 +60,7 @@ import {
   searchTracks,
   suggestSearch,
 } from "@/lib/music.functions";
+import { resolveSources } from "@/lib/playback.functions";
 import { formatTime, useYouTubePlayer } from "@/lib/use-youtube-player";
 import { cn } from "@/lib/utils";
 
@@ -80,11 +87,13 @@ export const Route = createFileRoute("/")({
   component: MusicApp,
 });
 
-type Tab = "foryou" | "mixes" | "search" | "likes" | "playlists" | "history";
+type Tab = BrowseTab;
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Sparkles }> = [
   { id: "foryou", label: "For you", icon: Sparkles },
   { id: "mixes", label: "Mixes", icon: Layers },
+  { id: "podcasts", label: "Podcasts", icon: Disc3 },
+  { id: "languages", label: "Languages", icon: Disc3 },
   { id: "search", label: "Search", icon: Search },
   { id: "likes", label: "Favourites", icon: Heart },
   { id: "playlists", label: "Playlists", icon: ListMusic },
@@ -95,6 +104,7 @@ function MusicApp() {
   const runSearch = useServerFn(searchTracks);
   const runRecommend = useServerFn(recommendTracks);
   const runMix = useServerFn(buildMix);
+  const runResolveSources = useServerFn(resolveSources);
 
   const runSuggest = useServerFn(suggestSearch);
 
@@ -145,6 +155,8 @@ function MusicApp() {
   const [showVideo, setShowVideo] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showQueue, setShowQueue] = useState(false);
+  const [mobilePlayerOpen, setMobilePlayerOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [continuous, setContinuous] = useState(true);
   const [extending, setExtending] = useState(false);
   const [resumed, setResumed] = useState(false);
@@ -197,6 +209,7 @@ function MusicApp() {
   currentRef.current = current;
   const queueRef = useRef<Track[]>([]);
   queueRef.current = queue;
+  const unavailableRef = useRef<() => void>(() => {});
 
 
   const player = useYouTubePlayer({
@@ -209,13 +222,14 @@ function MusicApp() {
       }
       if (continuous) void extendQueue();
     },
+    onUnavailable: () => unavailableRef.current(),
   });
 
   /** Live progress, so a manual skip can be told apart from a finished song. */
   const progressRef = useRef({ position: 0, duration: 0 });
   progressRef.current = { position: player.position, duration: player.duration };
 
-  const { load, cue, setVolume: applyVolume, play } = player;
+  const { loadSources, setVolume: applyVolume, play } = player;
 
 
   /** Restore the last session's queue and seek position (paused until you hit play). */
@@ -240,15 +254,18 @@ function MusicApp() {
     const resumeAt = resumeRef.current;
     if (resumeAt !== null) {
       resumeRef.current = null;
-      cue(track.id, resumeAt);
+      void runResolveSources({ data: { videoId: track.id } }).then(({ sources }) => {
+        loadSources(sources, resumeAt, false);
+      });
       setResumed(true);
       return;
     }
-    load(track.id);
-    play();
-    logPlay(track);
+    void runResolveSources({ data: { videoId: track.id } }).then(({ sources }) => {
+      loadSources(sources, 0, true);
+      logPlay(track);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.id, player.ready, load, cue, play, logPlay]);
+  }, [current?.id, player.ready, loadSources, runResolveSources, logPlay]);
 
   /** Persist queue + seek position so reopening the app picks up where it stopped. */
   useEffect(() => {
@@ -404,6 +421,8 @@ function MusicApp() {
     likes,
     playlists: [],
     history,
+    podcasts: results,
+    languages: results,
   };
   const visible = listForTab[tab];
 
@@ -423,6 +442,7 @@ function MusicApp() {
       return i;
     });
   }, [continuous, extendQueue, logSkip]);
+  unavailableRef.current = goNext;
 
 
   const goPrev = useCallback(() => setIndex((i) => Math.max(0, i - 1)), []);
@@ -486,23 +506,55 @@ function MusicApp() {
 
 
   return (
-    <div className="min-h-screen pb-40">
+    <div className="min-h-screen pb-36 md:ml-72 md:pb-40">
+      <MusicSidebar
+        tab={tab}
+        onTabChange={setTab}
+        onLanguageSelect={(value) => {
+          setQuery(value);
+          void searchFor(`${value} songs`);
+        }}
+        artists={topArtists(stats, likes)}
+        userId={auth.userId}
+      />
+      <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
+        <SheetContent side="left" className="w-72 p-0 md:hidden">
+          <MusicSidebar
+            embedded
+            tab={tab}
+            onTabChange={(next) => {
+              setTab(next);
+              setMobileMenuOpen(false);
+            }}
+            onLanguageSelect={(value) => {
+              setMobileMenuOpen(false);
+              setQuery(value);
+              void searchFor(`${value} songs`);
+            }}
+            artists={topArtists(stats, likes)}
+            userId={auth.userId}
+          />
+        </SheetContent>
+      </Sheet>
       <div className="pointer-events-none fixed inset-x-0 top-0 h-96 bg-hero-glow" aria-hidden />
 
-      <header className="relative mx-auto flex max-w-5xl flex-col gap-6 px-4 pt-10 sm:px-6">
-        <div className="flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-vinyl shadow-player">
-            <Disc3
-              className={cn("h-6 w-6 text-primary", player.isPlaying && "animate-spin-slow")}
-            />
-          </span>
-          <div className="flex-1">
-            <h1 className="text-2xl font-bold sm:text-3xl">Midnight Vinyl</h1>
-            <p className="text-xs text-muted-foreground">
-              {auth.userId
-                ? "Your feed syncs to your account"
-                : "Free listening with recommendations that learn your taste"}
-            </p>
+      <header className="relative mx-auto flex max-w-5xl flex-col gap-5 px-4 pt-5 sm:px-6 md:pt-10">
+        <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3">
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setMobileMenuOpen(true)} aria-label="Open navigation">
+            <Menu className="h-5 w-5" />
+          </Button>
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-vinyl shadow-player">
+              <Disc3
+                className={cn("h-6 w-6 text-primary", player.isPlaying && "animate-spin-slow")}
+              />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-xl font-bold sm:text-3xl">MelodyMap</h1>
+              <p className="truncate text-xs text-muted-foreground">
+                {auth.userId ? "Your music. Your mood." : "Your music. Your mood."}
+              </p>
+            </div>
           </div>
           <AccountMenu
             userId={auth.userId}
@@ -556,7 +608,7 @@ function MusicApp() {
         </form>
 
 
-        <nav className="flex flex-wrap gap-2">
+        <nav className="hidden flex-wrap gap-2 md:flex">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
@@ -613,6 +665,37 @@ function MusicApp() {
                 {mood}
               </button>
             ))}
+          </div>
+        )}
+
+        {tab === "languages" && (
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold">Music by language</h2>
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+              {LANGUAGES.map((language) => (
+                <Button key={language} variant="secondary" className="h-16 justify-start" onClick={() => {
+                  setQuery(language);
+                  void searchFor(`${language} songs`);
+                }}>
+                  {language}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {tab === "podcasts" && results.length === 0 && (
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold">Podcasts</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Audio-first shows and episodes.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {["Indian podcasts", "Technology podcasts", "Comedy podcasts", "Story podcasts"].map((topic) => (
+                <Button key={topic} variant="secondary" onClick={() => {
+                  setQuery(topic);
+                  void searchFor(topic);
+                }}>{topic}</Button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -733,8 +816,56 @@ function MusicApp() {
         )}
       </main>
 
-      {/* Player */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-card/95 backdrop-blur">
+      <MobilePlayer
+        open={mobilePlayerOpen}
+        {...(current ? { track: current } : {})}
+        isPlaying={player.isPlaying}
+        position={player.position}
+        duration={player.duration}
+        liked={current ? likedIds.has(current.id) : false}
+        disliked={current ? dislikedIds.has(current.id) : false}
+        canPrev={canPrev}
+        canNext={canNext || continuous}
+        onClose={() => setMobilePlayerOpen(false)}
+        onTogglePlay={togglePlay}
+        onPrev={goPrev}
+        onNext={goNext}
+        onSeek={player.seek}
+        onLike={() => current && toggleLike(current)}
+        onDislike={dislikeCurrent}
+        onQueue={() => {
+          setMobilePlayerOpen(false);
+          setShowQueue(true);
+        }}
+        sourceLabel={player.activeSource}
+      />
+
+      <BottomNav tab={tab} onTabChange={setTab} />
+
+      {/* Mobile mini player */}
+      <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 border-t border-border bg-card/95 px-3 py-2 backdrop-blur md:hidden">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+          <button type="button" onClick={() => setMobilePlayerOpen(true)} className="flex min-w-0 items-center gap-3 text-left">
+            <SpinningArt src={current?.thumbnail} playing={player.isPlaying} />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold">{current?.title ?? "Choose a song"}</span>
+              <span className="block truncate text-[11px] text-muted-foreground">{current ? `${current.artist} · ${player.activeSource}` : "MelodyMap"}</span>
+            </span>
+          </button>
+          <div className="flex items-center">
+            <Button variant="ghost" size="icon" onClick={togglePlay} disabled={!current} aria-label={player.isPlaying ? "Pause" : "Play"}>
+              {player.isPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+            </Button>
+            <Button variant="ghost" size="icon" onClick={goNext} disabled={!canNext && !continuous} aria-label="Next track">
+              <SkipForward className="h-5 w-5" />
+            </Button>
+          </div>
+        </div>
+        <ScrubBar position={player.position} duration={player.duration} thumbnail={current?.thumbnail} onSeek={player.seek} className="mt-1" />
+      </div>
+
+      {/* Desktop player */}
+      <div className="fixed bottom-0 left-72 right-0 z-30 hidden border-t border-border bg-card/95 backdrop-blur md:block">
         <div className="mx-auto max-w-5xl px-4 py-3 sm:px-6">
       {showQueue && (
     <QueuePanel
@@ -773,6 +904,7 @@ function MusicApp() {
                 <span className="truncate">{current?.title ?? "Pick a song to start"}</span>
               </p>
               <p className="truncate text-xs text-muted-foreground">{current?.artist ?? "—"}</p>
+              {current && <p className="text-[10px] font-bold uppercase text-primary">Source: {player.activeSource}</p>}
             </div>
 
 

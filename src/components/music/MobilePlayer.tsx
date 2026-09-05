@@ -24,6 +24,7 @@ type Props = {
   onLike: () => void;
   onDislike: () => void;
   onQueue: () => void;
+  sourceLabel: string;
 };
 
 export function MobilePlayer({
@@ -44,6 +45,7 @@ export function MobilePlayer({
   onLike,
   onDislike,
   onQueue,
+  sourceLabel,
 }: Props) {
   if (!open) return null;
 
@@ -78,6 +80,11 @@ export function MobilePlayer({
             <div className="min-w-0 flex-1">
               <h2 className="truncate text-2xl font-bold">{track?.title ?? "Pick a song to start"}</h2>
               <p className="mt-1 truncate text-sm text-muted-foreground">{track?.artist ?? "—"}</p>
+              {track && (
+                <span className="mt-2 inline-flex rounded-full border border-border bg-surface px-2 py-1 text-[10px] font-bold uppercase text-primary">
+                  {sourceLabel}
+                </span>
+              )}
             </div>
             <Button type="button" variant="ghost" size="icon" onClick={onLike} aria-label={liked ? "Remove favourite" : "Add favourite"}>
               <Heart className={cn("h-6 w-6", liked && "fill-accent text-accent")} />
